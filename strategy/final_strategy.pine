@@ -1,0 +1,84 @@
+// Trend-Aligned Channel Breakout (improved version of "Dual-Engine: Mean Reversion + Breakout")
+// Keeps the Mean Reversion Channel (SuperSmoother) breakout idea, removes the fee-losing mean-reversion leg,
+// and adds: higher-timeframe trend filter, ADX filter, ATR stop, ATR chandelier trailing exit, risk-% sizing.
+// Designed for 1h ETHUSD / SOLUSD perpetuals on Delta Exchange.
+//@version=5
+strategy("Trend-Aligned Channel Breakout", overlay=true, initial_capital=10000,
+     commission_type=strategy.commission.percent, commission_value=0.059, slippage=2,
+     pyramiding=0, process_orders_on_close=false)
+
+grp1 = "Channel"
+chLen   = input.int(100,   "Channel length (SuperSmoother)", minval=10, group=grp1)
+outer   = input.float(1.4, "Outer band multiplier (R2/S2)", step=0.1, group=grp1)
+grp2 = "Filters"
+trendLen = input.int(400,  "Trend EMA length", group=grp2)
+slopeLb  = input.int(24,   "Trend slope lookback (bars)", group=grp2)
+adxLen   = input.int(14,   "ADX length", group=grp2)
+adxMin   = input.float(20, "Min ADX", group=grp2)
+allowShort = input.bool(true, "Allow shorts", group=grp2)
+grp3 = "Risk"
+atrLen   = input.int(14,    "ATR length", group=grp3)
+stopAtr  = input.float(2.0, "Initial stop (x ATR)", step=0.1, group=grp3)
+trailAtr = input.float(3.0, "Trailing stop (x ATR from extreme)", step=0.1, group=grp3)
+riskPct  = input.float(0.75, "Risk per trade (% equity)", step=0.05, group=grp3)
+maxLev   = input.float(3.0, "Max notional leverage", step=0.5, group=grp3)
+
+supersmoother(src, len) =>
+    a1 = math.exp(-math.sqrt(2) * math.pi / len)
+    b1 = 2 * a1 * math.cos(math.sqrt(2) * math.pi / len)
+    c3 = -a1 * a1
+    c2 = b1
+    c1 = 1 - c2 - c3
+    var float ss = na
+    ss := c1 * src + c2 * nz(ss[1], src) + c3 * nz(ss[2], src)
+    ss
+
+mean  = supersmoother(close, chLen)
+rng   = supersmoother(ta.tr(true), chLen)
+up2   = mean + rng * math.pi * outer
+lo2   = mean - rng * math.pi * outer
+trend = ta.ema(close, trendLen)
+atr   = ta.rma(ta.tr(true), atrLen)
+[_, _, adxVal] = ta.dmi(adxLen, adxLen)
+
+upRegime = close > trend and trend > trend[slopeLb] and adxVal >= adxMin
+dnRegime = close < trend and trend < trend[slopeLb] and adxVal >= adxMin
+
+longSig  = upRegime and ta.crossover(close, up2)
+shortSig = allowShort and dnRegime and ta.crossunder(close, lo2)
+
+var float stopPx = na
+var float ext    = na
+
+qtyFor(stopDist) =>
+    q = strategy.equity * riskPct / 100 / stopDist
+    math.min(q, strategy.equity * maxLev / close)
+
+if strategy.position_size == 0
+    stopPx := na
+    ext := na
+    if longSig
+        stopPx := close - stopAtr * atr
+        strategy.entry("L", strategy.long, qty=qtyFor(stopAtr * atr))
+    else if shortSig
+        stopPx := close + stopAtr * atr
+        strategy.entry("S", strategy.short, qty=qtyFor(stopAtr * atr))
+else if strategy.position_size > 0
+    ext := math.max(nz(ext, strategy.position_avg_price), high)
+    stopPx := math.max(stopPx, ext - trailAtr * atr)
+    if close < trend
+        strategy.close("L", comment="regime")
+else
+    ext := math.min(nz(ext, strategy.position_avg_price), low)
+    stopPx := math.min(stopPx, ext + trailAtr * atr)
+    if close > trend
+        strategy.close("S", comment="regime")
+
+strategy.exit("L-stop", "L", stop=stopPx)
+strategy.exit("S-stop", "S", stop=stopPx)
+
+plot(up2, "R2", color.new(color.green, 0), 2)
+plot(lo2, "S2", color.new(color.red, 0), 2)
+plot(mean, "Mean", color.new(color.yellow, 40))
+plot(trend, "Trend EMA", color.new(color.gray, 0), 2)
+plot(strategy.position_size != 0 ? stopPx : na, "Stop", color.orange, 1, plot.style_linebr)

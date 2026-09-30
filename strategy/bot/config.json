@@ -1,0 +1,14 @@
+{
+  "env": "india-testnet",
+  "symbols": ["ETHUSD", "SOLUSD"],
+  "settle_asset": "USD",
+  "risk_per_trade": 0.0075,
+  "max_notional_leverage": 3.0,
+  "exchange_leverage": 10,
+  "monthly_loss_limit": 0.10,
+  "kill_drawdown": 0.25,
+  "delay_after_close_s": 10,
+  "paper_capital": 10000,
+  "paper_contract_values": {"ETHUSD": 0.01, "SOLUSD": 1.0},
+  "params": {"ch_len": 100, "outer": 1.4, "trend_len": 400, "stop_atr": 2.0, "trail_atr": 3.0, "adx_min": 20}
+}

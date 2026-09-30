@@ -1,0 +1,6 @@
+data/trading.db
+bot/state_*.json
+bot/*.log
+bot/replay_result.json
+research/sweep_*.json
+__pycache__/
